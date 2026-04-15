@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Union
 
 from autotrain.trainers.clm.params import LLMTrainingParams
-from autotrain.trainers.dreambooth.params import DreamBoothTrainingParams
+from autotrain.trainers.extractive_question_answering.params import ExtractiveQuestionAnsweringParams
 from autotrain.trainers.generic.params import GenericParams
 from autotrain.trainers.image_classification.params import ImageClassificationParams
 from autotrain.trainers.image_regression.params import ImageRegressionParams
@@ -28,6 +28,9 @@ AVAILABLE_HARDWARE = {
     "spaces-cpu-basic": "cpu-basic",
     "spaces-l4x1": "l4x1",
     "spaces-l4x4": "l4x4",
+    "spaces-l40sx1": "l40sx1",
+    "spaces-l40sx4": "l40sx4",
+    "spaces-l40sx8": "l40sx8",
     "spaces-a10g-largex2": "a10g-largex2",
     "spaces-a10g-largex4": "a10g-largex4",
     # ngc
@@ -58,13 +61,30 @@ AVAILABLE_HARDWARE = {
 
 @dataclass
 class BaseBackend:
+    """
+    BaseBackend class is responsible for initializing and validating backend configurations
+    for various training parameters. It supports multiple types of training parameters
+    including text classification, image classification, LLM training, and more.
+
+    Attributes:
+        params (Union[TextClassificationParams, ImageClassificationParams, LLMTrainingParams,
+                      GenericParams, TabularParams, Seq2SeqParams,
+                      TokenClassificationParams, TextRegressionParams, ObjectDetectionParams,
+                      SentenceTransformersParams, ImageRegressionParams, VLMTrainingParams,
+                      ExtractiveQuestionAnsweringParams]): Training parameters.
+        backend (str): Backend type.
+
+    Methods:
+        __post_init__(): Initializes the backend configuration, validates parameters,
+                         sets task IDs, and prepares environment variables.
+    """
+
     params: Union[
         TextClassificationParams,
         ImageClassificationParams,
         LLMTrainingParams,
         GenericParams,
         TabularParams,
-        DreamBoothTrainingParams,
         Seq2SeqParams,
         TokenClassificationParams,
         TextRegressionParams,
@@ -72,6 +92,7 @@ class BaseBackend:
         SentenceTransformersParams,
         ImageRegressionParams,
         VLMTrainingParams,
+        ExtractiveQuestionAnsweringParams,
     ]
     backend: str
 
@@ -100,8 +121,6 @@ class BaseBackend:
             self.task_id = 26
         elif isinstance(self.params, GenericParams):
             self.task_id = 27
-        elif isinstance(self.params, DreamBoothTrainingParams):
-            self.task_id = 25
         elif isinstance(self.params, Seq2SeqParams):
             self.task_id = 28
         elif isinstance(self.params, ImageClassificationParams):
@@ -118,6 +137,8 @@ class BaseBackend:
             self.task_id = 24
         elif isinstance(self.params, VLMTrainingParams):
             self.task_id = 31
+        elif isinstance(self.params, ExtractiveQuestionAnsweringParams):
+            self.task_id = 5
         else:
             raise NotImplementedError
 
@@ -136,10 +157,7 @@ class BaseBackend:
             "TASK_ID": str(self.task_id),
             "PARAMS": json.dumps(self.params.model_dump_json()),
         }
-        if isinstance(self.params, DreamBoothTrainingParams):
-            self.env_vars["DATA_PATH"] = self.params.image_path
-        else:
-            self.env_vars["DATA_PATH"] = self.params.data_path
+        self.env_vars["DATA_PATH"] = self.params.data_path
 
         if not isinstance(self.params, GenericParams):
             self.env_vars["MODEL"] = self.params.model

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from autotrain.trainers.clm.params import LLMTrainingParams
-from autotrain.trainers.dreambooth.params import DreamBoothTrainingParams
+from autotrain.trainers.extractive_question_answering.params import ExtractiveQuestionAnsweringParams
 from autotrain.trainers.image_classification.params import ImageClassificationParams
 from autotrain.trainers.image_regression.params import ImageRegressionParams
 from autotrain.trainers.object_detection.params import ObjectDetectionParams
@@ -63,6 +63,8 @@ HIDDEN_PARAMS = [
     "sentence1_column",
     "sentence2_column",
     "sentence3_column",
+    "question_column",
+    "answer_column",
 ]
 
 
@@ -78,6 +80,7 @@ PARAMS["llm"] = LLMTrainingParams(
     padding="right",
     chat_template="none",
     max_completion_length=128,
+    distributed_backend="ddp",
 ).model_dump()
 
 PARAMS["text-classification"] = TextClassificationParams(
@@ -106,20 +109,6 @@ PARAMS["tabular"] = TabularParams(
     numerical_imputer="median",
     numeric_scaler="robust",
 ).model_dump()
-PARAMS["dreambooth"] = DreamBoothTrainingParams(
-    prompt="<enter your prompt here>",
-    vae_model="",
-    num_steps=500,
-    disable_gradient_checkpointing=False,
-    mixed_precision="fp16",
-    batch_size=1,
-    gradient_accumulation=4,
-    resolution=1024,
-    use_8bit_adam=False,
-    xformers=False,
-    train_text_encoder=False,
-    lr=1e-4,
-).model_dump()
 PARAMS["token-classification"] = TokenClassificationParams(
     mixed_precision="fp16",
     log="tensorboard",
@@ -140,10 +129,51 @@ PARAMS["vlm"] = VLMTrainingParams(
     peft=True,
     epochs=3,
 ).model_dump()
+PARAMS["extractive-qa"] = ExtractiveQuestionAnsweringParams(
+    mixed_precision="fp16",
+    log="tensorboard",
+    max_seq_length=512,
+    max_doc_stride=128,
+).model_dump()
 
 
 @dataclass
 class AppParams:
+    """
+    AppParams class is responsible for managing and processing parameters for various machine learning tasks.
+
+    Attributes:
+        job_params_json (str): JSON string containing job parameters.
+        token (str): Authentication token.
+        project_name (str): Name of the project.
+        username (str): Username of the project owner.
+        task (str): Type of task to be performed.
+        data_path (str): Path to the dataset.
+        base_model (str): Base model to be used.
+        column_mapping (dict): Mapping of columns for the dataset.
+        train_split (Optional[str]): Name of the training split. Default is None.
+        valid_split (Optional[str]): Name of the validation split. Default is None.
+        using_hub_dataset (Optional[bool]): Flag indicating if a hub dataset is used. Default is False.
+        api (Optional[bool]): Flag indicating if API is used. Default is False.
+
+    Methods:
+        __post_init__(): Validates the parameters after initialization.
+        munge(): Processes the parameters based on the task type.
+        _munge_common_params(): Processes common parameters for all tasks.
+        _munge_params_sent_transformers(): Processes parameters for sentence transformers task.
+        _munge_params_llm(): Processes parameters for large language model task.
+        _munge_params_vlm(): Processes parameters for vision-language model task.
+        _munge_params_text_clf(): Processes parameters for text classification task.
+        _munge_params_extractive_qa(): Processes parameters for extractive question answering task.
+        _munge_params_text_reg(): Processes parameters for text regression task.
+        _munge_params_token_clf(): Processes parameters for token classification task.
+        _munge_params_seq2seq(): Processes parameters for sequence-to-sequence task.
+        _munge_params_img_clf(): Processes parameters for image classification task.
+        _munge_params_img_reg(): Processes parameters for image regression task.
+        _munge_params_img_obj_det(): Processes parameters for image object detection task.
+        _munge_params_tabular(): Processes parameters for tabular data task.
+    """
+
     job_params_json: str
     token: str
     project_name: str
@@ -172,8 +202,6 @@ class AppParams:
             return self._munge_params_img_obj_det()
         elif self.task.startswith("tabular"):
             return self._munge_params_tabular()
-        elif self.task == "dreambooth":
-            return self._munge_params_dreambooth()
         elif self.task.startswith("llm"):
             return self._munge_params_llm()
         elif self.task == "token-classification":
@@ -186,6 +214,8 @@ class AppParams:
             return self._munge_params_img_reg()
         elif self.task.startswith("vlm"):
             return self._munge_params_vlm()
+        elif self.task == "extractive-qa":
+            return self._munge_params_extractive_qa()
         else:
             raise ValueError(f"Unknown task: {self.task}")
 
@@ -202,7 +232,8 @@ class AppParams:
     def _munge_params_sent_transformers(self):
         _params = self._munge_common_params()
         _params["model"] = self.base_model
-        _params["log"] = "tensorboard"
+        if "log" not in _params:
+            _params["log"] = "tensorboard"
         if not self.using_hub_dataset:
             _params["sentence1_column"] = "autotrain_sentence1"
             _params["sentence2_column"] = "autotrain_sentence2"
@@ -243,7 +274,8 @@ class AppParams:
                 "rejected_text" if not self.api else "rejected_text_column", "rejected_text"
             )
             _params["train_split"] = self.train_split
-        _params["log"] = "tensorboard"
+        if "log" not in _params:
+            _params["log"] = "tensorboard"
 
         trainer = self.task.split(":")[1]
         if trainer != "generic":
@@ -273,7 +305,8 @@ class AppParams:
             )
             _params["train_split"] = self.train_split
             _params["valid_split"] = self.valid_split
-        _params["log"] = "tensorboard"
+        if "log" not in _params:
+            _params["log"] = "tensorboard"
 
         trainer = self.task.split(":")[1]
         _params["trainer"] = trainer.lower()
@@ -287,7 +320,8 @@ class AppParams:
     def _munge_params_text_clf(self):
         _params = self._munge_common_params()
         _params["model"] = self.base_model
-        _params["log"] = "tensorboard"
+        if "log" not in _params:
+            _params["log"] = "tensorboard"
         if not self.using_hub_dataset:
             _params["text_column"] = "autotrain_text"
             _params["target_column"] = "autotrain_label"
@@ -299,10 +333,31 @@ class AppParams:
             _params["valid_split"] = self.valid_split
         return TextClassificationParams(**_params)
 
+    def _munge_params_extractive_qa(self):
+        _params = self._munge_common_params()
+        _params["model"] = self.base_model
+        if "log" not in _params:
+            _params["log"] = "tensorboard"
+        if not self.using_hub_dataset:
+            _params["text_column"] = "autotrain_text"
+            _params["question_column"] = "autotrain_question"
+            _params["answer_column"] = "autotrain_answer"
+            _params["valid_split"] = "validation"
+        else:
+            _params["text_column"] = self.column_mapping.get("text" if not self.api else "text_column", "text")
+            _params["question_column"] = self.column_mapping.get(
+                "question" if not self.api else "question_column", "question"
+            )
+            _params["answer_column"] = self.column_mapping.get("answer" if not self.api else "answer_column", "answer")
+            _params["train_split"] = self.train_split
+            _params["valid_split"] = self.valid_split
+        return ExtractiveQuestionAnsweringParams(**_params)
+
     def _munge_params_text_reg(self):
         _params = self._munge_common_params()
         _params["model"] = self.base_model
-        _params["log"] = "tensorboard"
+        if "log" not in _params:
+            _params["log"] = "tensorboard"
         if not self.using_hub_dataset:
             _params["text_column"] = "autotrain_text"
             _params["target_column"] = "autotrain_label"
@@ -317,14 +372,15 @@ class AppParams:
     def _munge_params_token_clf(self):
         _params = self._munge_common_params()
         _params["model"] = self.base_model
-        _params["log"] = "tensorboard"
+        if "log" not in _params:
+            _params["log"] = "tensorboard"
         if not self.using_hub_dataset:
             _params["tokens_column"] = "autotrain_text"
             _params["tags_column"] = "autotrain_label"
             _params["valid_split"] = "validation"
         else:
-            _params["tokens_column"] = self.column_mapping.get("text" if not self.api else "tokens_column", "text")
-            _params["tags_column"] = self.column_mapping.get("label" if not self.api else "tags_column", "label")
+            _params["tokens_column"] = self.column_mapping.get("tokens" if not self.api else "tokens_column", "tokens")
+            _params["tags_column"] = self.column_mapping.get("tags" if not self.api else "tags_column", "tags")
             _params["train_split"] = self.train_split
             _params["valid_split"] = self.valid_split
 
@@ -333,7 +389,8 @@ class AppParams:
     def _munge_params_seq2seq(self):
         _params = self._munge_common_params()
         _params["model"] = self.base_model
-        _params["log"] = "tensorboard"
+        if "log" not in _params:
+            _params["log"] = "tensorboard"
         if not self.using_hub_dataset:
             _params["text_column"] = "autotrain_text"
             _params["target_column"] = "autotrain_label"
@@ -349,7 +406,8 @@ class AppParams:
     def _munge_params_img_clf(self):
         _params = self._munge_common_params()
         _params["model"] = self.base_model
-        _params["log"] = "tensorboard"
+        if "log" not in _params:
+            _params["log"] = "tensorboard"
         if not self.using_hub_dataset:
             _params["image_column"] = "autotrain_image"
             _params["target_column"] = "autotrain_label"
@@ -365,7 +423,8 @@ class AppParams:
     def _munge_params_img_reg(self):
         _params = self._munge_common_params()
         _params["model"] = self.base_model
-        _params["log"] = "tensorboard"
+        if "log" not in _params:
+            _params["log"] = "tensorboard"
         if not self.using_hub_dataset:
             _params["image_column"] = "autotrain_image"
             _params["target_column"] = "autotrain_label"
@@ -381,7 +440,8 @@ class AppParams:
     def _munge_params_img_obj_det(self):
         _params = self._munge_common_params()
         _params["model"] = self.base_model
-        _params["log"] = "tensorboard"
+        if "log" not in _params:
+            _params["log"] = "tensorboard"
         if not self.using_hub_dataset:
             _params["image_column"] = "autotrain_image"
             _params["objects_column"] = "autotrain_objects"
@@ -428,19 +488,23 @@ class AppParams:
 
         return TabularParams(**_params)
 
-    def _munge_params_dreambooth(self):
-        _params = self._munge_common_params()
-        _params["model"] = self.base_model
-        _params["image_path"] = self.data_path
-
-        if "weight_decay" in _params:
-            _params["adam_weight_decay"] = _params["weight_decay"]
-            _params.pop("weight_decay")
-
-        return DreamBoothTrainingParams(**_params)
-
 
 def get_task_params(task, param_type):
+    """
+    Retrieve task-specific parameters while filtering out hidden parameters based on the task and parameter type.
+
+    Args:
+        task (str): The task identifier, which can include prefixes like "llm", "st:", "vlm:", etc.
+        param_type (str): The type of parameters to retrieve, typically "basic" or other types.
+
+    Returns:
+        dict: A dictionary of task-specific parameters with hidden parameters filtered out.
+
+    Notes:
+        - The function handles various task prefixes and adjusts the task and trainer variables accordingly.
+        - Hidden parameters are filtered out based on the task and parameter type.
+        - Additional hidden parameters are defined for specific tasks and trainers.
+    """
     if task.startswith("llm"):
         trainer = task.split(":")[1].lower()
         task = task.split(":")[0].lower()
@@ -523,6 +587,20 @@ def get_task_params(task, param_type):
             )
         task_params = {k: v for k, v in task_params.items() if k not in more_hidden_params}
     if task == "text-classification" and param_type == "basic":
+        more_hidden_params = [
+            "warmup_ratio",
+            "weight_decay",
+            "max_grad_norm",
+            "seed",
+            "logging_steps",
+            "auto_find_batch_size",
+            "save_total_limit",
+            "eval_strategy",
+            "early_stopping_patience",
+            "early_stopping_threshold",
+        ]
+        task_params = {k: v for k, v in task_params.items() if k not in more_hidden_params}
+    if task == "extractive-qa" and param_type == "basic":
         more_hidden_params = [
             "warmup_ratio",
             "weight_decay",
@@ -656,35 +734,6 @@ def get_task_params(task, param_type):
             "early_stopping_patience",
             "early_stopping_threshold",
         ]
-        task_params = {k: v for k, v in task_params.items() if k not in more_hidden_params}
-    if task == "dreambooth":
-        more_hidden_params = [
-            "epochs",
-            "logging",
-            "bf16",
-        ]
-        if param_type == "basic":
-            more_hidden_params.extend(
-                [
-                    "prior_preservation",
-                    "prior_loss_weight",
-                    "seed",
-                    "center_crop",
-                    "train_text_encoder",
-                    "disable_gradient_checkpointing",
-                    "scale_lr",
-                    "warmup_steps",
-                    "num_cycles",
-                    "lr_power",
-                    "adam_beta1",
-                    "adam_beta2",
-                    "adam_weight_decay",
-                    "adam_epsilon",
-                    "max_grad_norm",
-                    "pre_compute_text_embeddings",
-                    "text_encoder_use_attention_mask",
-                ]
-            )
         task_params = {k: v for k, v in task_params.items() if k not in more_hidden_params}
 
     return task_params
